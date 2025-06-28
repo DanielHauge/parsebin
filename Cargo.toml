@@ -1,6 +1,6 @@
 [package]
 name = "parsebin"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Daniel <animcuil@gmail.com>"]
 description = "An very simple tool to parse binary data and print primitive values to standard out."
