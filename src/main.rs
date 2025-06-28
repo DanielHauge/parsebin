@@ -1,6 +1,5 @@
-use std::i64::MAX;
+use std::fmt::Display;
 use std::io::Read;
-use std::os::windows::fs::MetadataExt;
 
 use clap::Parser;
 use clap::ValueEnum;
@@ -25,11 +24,11 @@ enum ByteOrder {
     BigEndian,
 }
 
-impl ToString for ByteOrder {
-    fn to_string(&self) -> String {
+impl Display for ByteOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ByteOrder::LittleEndian => "little-endian".to_string(),
-            ByteOrder::BigEndian => "big-endian".to_string(),
+            ByteOrder::LittleEndian => write!(f, "little-endian"),
+            ByteOrder::BigEndian => write!(f, "big-endian"),
         }
     }
 }
@@ -64,8 +63,12 @@ struct Opt {
     #[clap(short, long, default_value_t = 0)]
     offset: u64,
 
-    #[clap(short, long, default_value_t = MAX)]
+    #[clap(short, long, default_value_t = i64::MAX)]
     number: i64,
+
+    // Number of floats in each row, like 4 would print 4 floats per line
+    #[clap(short, long, default_value_t = 1)]
+    row_size: usize,
 
     #[clap(short, long, default_value_t = ByteOrder::LittleEndian)]
     byte_order: ByteOrder,
@@ -82,7 +85,18 @@ fn main() {
                 eprintln!("File is a directory: {}", args.file);
                 std::process::exit(1);
             } else {
-                meta.file_size()
+                // if windows, use the file size from the metadata
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    meta.file_size()
+                }
+                // if unix, use the file size from the metadata
+                #[cfg(not(target_os = "windows"))]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    meta.size()
+                }
             }
         }
         Err(e) => {
@@ -109,11 +123,11 @@ fn main() {
     }
     // While number is not 0, read the file and parse the data according to the type.
     let bytes_to_read = match args.number {
-        MAX => (file_size - args.offset) as i64,
+        i64::MAX => (file_size - args.offset) as i64,
         a => std::cmp::min(a * args.parse_type.size_of(), file_size as i64),
     };
     // Read the file until the end of the file or the number of bytes to read.
-    let mut buffer = vec![0; 4096 as usize];
+    let mut buffer = vec![0; 4096_usize];
     let mut previous_unread = 0;
     let mut bytes_read = 0;
     while bytes_read < bytes_to_read {
@@ -127,6 +141,7 @@ fn main() {
                 }
                 bytes_read += n as i64;
                 let mut i = 0;
+                let mut current_row = 0;
                 while i < n {
                     let size = args.parse_type.size_of() as usize;
                     if i + size > n {
@@ -136,10 +151,11 @@ fn main() {
                         previous_unread = n - i;
                         break;
                     }
+
                     match args.parse_type {
                         ParseType::U8 => {
                             let value = buffer[i] as u8;
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 1;
                         }
                         ParseType::U16 => {
@@ -151,7 +167,7 @@ fn main() {
                                     u16::from_be_bytes([buffer[i], buffer[i + 1]])
                                 }
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 2;
                         }
                         ParseType::U32 => {
@@ -169,7 +185,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 4;
                         }
                         ParseType::U64 => {
@@ -195,12 +211,12 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 8;
                         }
                         ParseType::I8 => {
                             let value = buffer[i] as i8;
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 1;
                         }
                         ParseType::I16 => {
@@ -212,7 +228,7 @@ fn main() {
                                     i16::from_be_bytes([buffer[i], buffer[i + 1]])
                                 }
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                         }
                         ParseType::I32 => {
                             let value = match args.byte_order {
@@ -229,7 +245,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 4;
                         }
                         ParseType::I64 => {
@@ -255,7 +271,7 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 8;
                         }
                         ParseType::F32 => {
@@ -273,7 +289,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 4;
                         }
                         ParseType::F64 => {
@@ -299,9 +315,14 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            println!("{}", value);
+                            print!("{} ", value);
                             i += 8;
                         }
+                    }
+                    current_row += 1;
+                    if current_row >= args.row_size {
+                        println!();
+                        current_row = 0;
                     }
                 }
             }
@@ -309,6 +330,46 @@ fn main() {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f32::consts::PI;
+
+    use super::*;
+
+    #[test]
+    fn test_size_of() {
+        assert_eq!(ParseType::U8.size_of(), 1);
+        assert_eq!(ParseType::U16.size_of(), 2);
+        assert_eq!(ParseType::U32.size_of(), 4);
+        assert_eq!(ParseType::U64.size_of(), 8);
+        assert_eq!(ParseType::I8.size_of(), 1);
+        assert_eq!(ParseType::I16.size_of(), 2);
+        assert_eq!(ParseType::I32.size_of(), 4);
+        assert_eq!(ParseType::I64.size_of(), 8);
+        assert_eq!(ParseType::F32.size_of(), 4);
+        assert_eq!(ParseType::F64.size_of(), 8);
+    }
+
+    #[test]
+    fn write_sinus_cos_to_file() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create("test_data.bin").unwrap();
+        // Just write some fucking sinus and cosinus waves basically swinging from 1 to -1
+        let steps = 100;
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32 * 2.0 * PI;
+            let sin = t.sin();
+            let bytes = sin.to_le_bytes();
+            file.write_all(&bytes).unwrap();
+            let cos = t.cos();
+            let bytes = cos.to_le_bytes();
+            file.write_all(&bytes).unwrap();
         }
     }
 }
