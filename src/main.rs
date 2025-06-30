@@ -1,3 +1,4 @@
+use core::f32;
 use std::fmt::Display;
 use std::io::Read;
 
@@ -76,6 +77,15 @@ struct Opt {
     file: String,
 }
 
+fn output<T: Display>(value: T, row_size: usize, current_row: &mut usize) {
+    print!("{} ", value);
+    *current_row += 1;
+    if *current_row >= row_size {
+        println!();
+        *current_row = 0;
+    }
+}
+
 fn main() {
     let args = Opt::parse();
 
@@ -130,6 +140,8 @@ fn main() {
     let mut buffer = vec![0; 4096_usize];
     let mut previous_unread = 0;
     let mut bytes_read = 0;
+    let mut current_row = 0;
+    let row_count = args.row_size;
     while bytes_read < bytes_to_read {
         let bytes_to_read_now =
             std::cmp::min(buffer.len() as i64, bytes_to_read - bytes_read) as usize;
@@ -141,7 +153,6 @@ fn main() {
                 }
                 bytes_read += n as i64;
                 let mut i = 0;
-                let mut current_row = 0;
                 while i < n {
                     let size = args.parse_type.size_of() as usize;
                     if i + size > n {
@@ -155,7 +166,7 @@ fn main() {
                     match args.parse_type {
                         ParseType::U8 => {
                             let value = buffer[i] as u8;
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 1;
                         }
                         ParseType::U16 => {
@@ -167,7 +178,7 @@ fn main() {
                                     u16::from_be_bytes([buffer[i], buffer[i + 1]])
                                 }
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 2;
                         }
                         ParseType::U32 => {
@@ -185,7 +196,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 4;
                         }
                         ParseType::U64 => {
@@ -211,12 +222,12 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 8;
                         }
                         ParseType::I8 => {
                             let value = buffer[i] as i8;
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 1;
                         }
                         ParseType::I16 => {
@@ -228,7 +239,7 @@ fn main() {
                                     i16::from_be_bytes([buffer[i], buffer[i + 1]])
                                 }
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                         }
                         ParseType::I32 => {
                             let value = match args.byte_order {
@@ -245,7 +256,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 4;
                         }
                         ParseType::I64 => {
@@ -271,7 +282,7 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 8;
                         }
                         ParseType::F32 => {
@@ -289,7 +300,7 @@ fn main() {
                                     buffer[i + 3],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 4;
                         }
                         ParseType::F64 => {
@@ -315,14 +326,9 @@ fn main() {
                                     buffer[i + 7],
                                 ]),
                             };
-                            print!("{} ", value);
+                            output(value, row_count, &mut current_row);
                             i += 8;
                         }
-                    }
-                    current_row += 1;
-                    if current_row >= args.row_size {
-                        println!();
-                        current_row = 0;
                     }
                 }
             }
@@ -361,7 +367,7 @@ mod tests {
 
         let mut file = File::create("test_data.bin").unwrap();
         // Just write some fucking sinus and cosinus waves basically swinging from 1 to -1
-        let steps = 100;
+        let steps = 10000;
         for i in 0..=steps {
             let t = i as f32 / steps as f32 * 2.0 * PI;
             let sin = t.sin();
